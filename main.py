@@ -101,13 +101,66 @@ with col1:
 
 with col2:
     st.subheader("📁 Travaux étudiants")
-    student_zip = st.file_uploader(
-        label="Fichier ZIP des travaux",
-        type=["zip"],
-        accept_multiple_files=False,
-        help="ZIP contenant un dossier par étudiant (nom du dossier = nom de l'étudiant)",
-        key="student_zip",
+
+    # Input mode selection
+    STUDENT_INPUT_MODES = {
+        "zip": "📦 ZIP (plusieurs étudiants)",
+        "files": "📄 Fichier(s) (travail unique)",
+        "text": "✏️ Texte (travail unique)",
+    }
+
+    student_input_mode = st.radio(
+        label="Mode de saisie",
+        options=list(STUDENT_INPUT_MODES.keys()),
+        format_func=lambda x: STUDENT_INPUT_MODES[x],
+        horizontal=True,
+        key="student_input_mode",
     )
+
+    # ZIP mode (multiple students)
+    student_zip = None
+    student_single_files = None
+    student_single_text = ""
+    student_single_name = ""
+
+    if student_input_mode == "zip":
+        student_zip = st.file_uploader(
+            label="Fichier ZIP des travaux",
+            type=["zip"],
+            accept_multiple_files=False,
+            help="ZIP contenant un dossier par étudiant (nom du dossier = nom de l'étudiant)",
+            key="student_zip",
+        )
+
+    elif student_input_mode == "files":
+        student_single_name = st.text_input(
+            label="Nom de l'étudiant",
+            placeholder="Jean Dupont",
+            help="Identifiant pour ce travail",
+            key="student_single_name",
+        )
+        student_single_files = st.file_uploader(
+            label="Fichier(s) du travail",
+            type=["pdf", "docx", "doc", "xlsx", "xls", "txt", "html", "htm"],
+            accept_multiple_files=True,
+            help="Uploadez un ou plusieurs fichiers du travail à évaluer",
+            key="student_single_files",
+        )
+
+    else:  # text mode
+        student_single_name = st.text_input(
+            label="Nom de l'étudiant",
+            placeholder="Jean Dupont",
+            help="Identifiant pour ce travail",
+            key="student_single_name_text",
+        )
+        student_single_text = st.text_area(
+            label="Contenu du travail",
+            placeholder="Collez ici le contenu du travail à évaluer...",
+            height=200,
+            help="Texte du travail étudiant à analyser",
+            key="student_single_text",
+        )
 
 with col3:
     st.subheader("📖 Base de connaissances")
@@ -220,9 +273,25 @@ if st.button("🚀 Lancer l'évaluation", type="primary", use_container_width=Tr
         st.error("❌ Veuillez fournir des instructions pour le format de sortie.")
         st.stop()
 
-    if not student_zip:
-        st.error("❌ Veuillez uploader le fichier ZIP des travaux étudiants.")
-        st.stop()
+    # Validate student input based on mode
+    if student_input_mode == "zip":
+        if not student_zip:
+            st.error("❌ Veuillez uploader le fichier ZIP des travaux étudiants.")
+            st.stop()
+    elif student_input_mode == "files":
+        if not student_single_files:
+            st.error("❌ Veuillez uploader au moins un fichier de travail étudiant.")
+            st.stop()
+        if not student_single_name.strip():
+            st.error("❌ Veuillez indiquer le nom de l'étudiant.")
+            st.stop()
+    else:  # text mode
+        if not student_single_text.strip():
+            st.error("❌ Veuillez saisir le contenu du travail étudiant.")
+            st.stop()
+        if not student_single_name.strip():
+            st.error("❌ Veuillez indiquer le nom de l'étudiant.")
+            st.stop()
 
     # Parse evaluation grid (combine files + text)
     with st.spinner("Lecture de la grille d'évaluation..."):
@@ -271,31 +340,57 @@ if st.button("🚀 Lancer l'évaluation", type="primary", use_container_width=Tr
 
         knowledge_content = "\n\n".join(knowledge_parts)
 
-    # Extract student submissions
-    with st.spinner("Extraction des travaux étudiants..."):
-        zip_content = student_zip.read()
-        student_submissions = extract_student_submissions(zip_content)
+    # Extract student submissions based on input mode
+    parsed_submissions: dict[str, str] = {}
 
-    if not student_submissions:
-        st.error("❌ Aucun travail d'étudiant trouvé dans le ZIP.")
-        st.stop()
+    if student_input_mode == "zip":
+        # ZIP mode: multiple students
+        with st.spinner("Extraction des travaux étudiants..."):
+            zip_content = student_zip.read()
+            student_submissions = extract_student_submissions(zip_content)
 
-    st.success(f"✅ {len(student_submissions)} étudiants trouvés")
+        if not student_submissions:
+            st.error("❌ Aucun travail d'étudiant trouvé dans le ZIP.")
+            st.stop()
 
-    # Parse all student works first (fast, synchronous)
-    with st.spinner("Analyse des fichiers étudiants..."):
-        parsed_submissions: dict[str, str] = {}
-        for student_name, files in student_submissions.items():
+        st.success(f"✅ {len(student_submissions)} étudiants trouvés")
+
+        # Parse all student works (fast, synchronous)
+        with st.spinner("Analyse des fichiers étudiants..."):
+            for name, files in student_submissions.items():
+                student_work_parts = []
+                for filename, content in files:
+                    parsed = parse_document(filename, content)
+                    if parsed:
+                        student_work_parts.append(f"=== {filename} ===\n{parsed}")
+
+                if student_work_parts:
+                    parsed_submissions[name] = "\n\n".join(student_work_parts)
+                else:
+                    st.warning(f"⚠️ Aucun fichier lisible pour {name}")
+
+    elif student_input_mode == "files":
+        # Single student from uploaded files
+        with st.spinner("Analyse des fichiers..."):
             student_work_parts = []
-            for filename, content in files:
-                parsed = parse_document(filename, content)
+            for file in student_single_files:
+                content = file.read()
+                file.seek(0)
+                parsed = parse_document(file.name, content)
                 if parsed:
-                    student_work_parts.append(f"=== {filename} ===\n{parsed}")
+                    student_work_parts.append(f"=== {file.name} ===\n{parsed}")
 
             if student_work_parts:
-                parsed_submissions[student_name] = "\n\n".join(student_work_parts)
+                parsed_submissions[student_single_name.strip()] = "\n\n".join(student_work_parts)
+                st.success("✅ 1 travail étudiant trouvé")
             else:
-                st.warning(f"⚠️ Aucun fichier lisible pour {student_name}")
+                st.error("❌ Impossible de lire les fichiers fournis.")
+                st.stop()
+
+    else:  # text mode
+        # Single student from text input
+        parsed_submissions[student_single_name.strip()] = f"=== Texte saisi ===\n{student_single_text.strip()}"
+        st.success("✅ 1 travail étudiant trouvé")
 
     if not parsed_submissions:
         st.error("❌ Aucun travail lisible trouvé.")
