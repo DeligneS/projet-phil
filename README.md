@@ -48,7 +48,7 @@ cd projet-phil
 
 **Option B : Sans Git**
 
-1. Téléchargez le projet en ZIP depuis GitHub
+1. Téléchargez le projet en ZIP depuis GitHub (cliquer sur le bouton vert <Code>)
 2. Extrayez le dossier
 3. Ouvrez le dossier dans VS Code (`File > Open Folder`)
 
@@ -60,7 +60,7 @@ Créez un fichier `.env` à la racine du projet :
 New-Item -Path ".env" -ItemType File
 ```
 
-Ouvrez le fichier `.env` et ajoutez votre clé API :
+Ouvrez le fichier `.env` dans l'explorateur de VS Code (en haut à gauche) et ajoutez votre clé API :
 
 ```
 OPENAI_API_KEY=sk-votre-cle-api-openai
